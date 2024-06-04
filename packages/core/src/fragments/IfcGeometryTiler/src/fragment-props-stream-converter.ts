@@ -25,7 +25,7 @@ export class FragmentPropsStreamConverter
 
   enabled: boolean = true;
 
-  settings = new PropertiesStreamingSettings();
+  settings = new PropertiesStreamingSettings(this);
 
   webIfc = new WEBIFC.IfcAPI();
 

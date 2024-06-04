@@ -2,7 +2,12 @@ import * as WEBIFC from "web-ifc";
 import * as THREE from "three";
 import * as FRAGS from "@thatopen/fragments";
 import { SpatialStructure } from "./src/spatial-structure";
-import { CivilReader, IfcFragmentSettings, IfcMetadataReader } from "./src";
+import {
+  IfcLoaderConfig,
+  CivilReader,
+  IfcMetadataReader,
+  IfcLoaderSettings,
+} from "./src";
 import { FragmentsManager } from "../FragmentsManager";
 import { Component, Components, Event, Disposable } from "../../core";
 import { IfcJsonExporter } from "../../ifc/IfcJsonExporter";
@@ -12,12 +17,8 @@ export class IfcLoader extends Component implements Disposable {
 
   readonly onIfcStartedLoading = new Event<void>();
 
-  readonly onSetup = new Event<void>();
-
   /** {@link Disposable.onDisposed} */
   readonly onDisposed = new Event<string>();
-
-  settings = new IfcFragmentSettings();
 
   enabled: boolean = true;
 
@@ -42,7 +43,7 @@ export class IfcLoader extends Component implements Disposable {
   constructor(components: Components) {
     super(components);
     this.components.add(IfcLoader.uuid, this);
-    this.settings.excludedCategories.add(WEBIFC.IFCOPENINGELEMENT);
+    this.config.excludedCategories.add(WEBIFC.IFCOPENINGELEMENT);
   }
 
   dispose() {
@@ -51,12 +52,10 @@ export class IfcLoader extends Component implements Disposable {
     this.onDisposed.reset();
   }
 
-  async setup(config?: Partial<IfcFragmentSettings>) {
-    this.settings = { ...this.settings, ...config };
-    if (this.settings.autoSetWasm) {
-      await this.autoSetWasm();
-    }
-    this.onSetup.trigger();
+  readonly config = new IfcLoaderConfig(this);
+  readonly onSetup = new Event<void>();
+  async setup(config?: Partial<IfcLoaderSettings>) {
+    await this.config.set(config);
   }
 
   async load(data: Uint8Array, coordinate = true) {
@@ -90,13 +89,13 @@ export class IfcLoader extends Component implements Disposable {
   }
 
   async readIfcFile(data: Uint8Array) {
-    const { path, absolute, logLevel } = this.settings.wasm;
+    const { path, absolute, logLevel } = this.config.wasm;
     this.webIfc.SetWasmPath(path, absolute);
     await this.webIfc.Init();
     if (logLevel) {
       this.webIfc.SetLogLevel(logLevel);
     }
-    return this.webIfc.OpenModel(data, this.settings.webIfc);
+    return this.webIfc.OpenModel(data, this.config.webIfc);
   }
 
   private async getAllGeometries() {
@@ -122,7 +121,7 @@ export class IfcLoader extends Component implements Disposable {
       if (!this.webIfc.IsIfcElement(type) && type !== WEBIFC.IFCSPACE) {
         continue;
       }
-      if (this.settings.excludedCategories.has(type)) {
+      if (this.config.excludedCategories.has(type)) {
         continue;
       }
       const result = this.webIfc.GetLineIDsWithType(0, type);
@@ -281,27 +280,5 @@ export class IfcLoader extends Component implements Disposable {
     geometry.delete();
 
     return bufferGeometry;
-  }
-
-  private async autoSetWasm() {
-    const componentsPackage = await fetch(
-      `https://unpkg.com/openbim-components@${Components.release}/package.json`,
-    );
-    if (!componentsPackage.ok) {
-      console.warn(
-        "Couldn't get openbim-components package.json. Set wasm settings manually.",
-      );
-      return;
-    }
-    const componentsPackageJSON = await componentsPackage.json();
-    if (!("web-ifc" in componentsPackageJSON.peerDependencies)) {
-      console.warn(
-        "Couldn't get web-ifc from peer dependencies in openbim-components. Set wasm settings manually.",
-      );
-    } else {
-      const webIfcVer = componentsPackageJSON.peerDependencies["web-ifc"];
-      this.settings.wasm.path = `https://unpkg.com/web-ifc@${webIfcVer}/`;
-      this.settings.wasm.absolute = true;
-    }
   }
 }

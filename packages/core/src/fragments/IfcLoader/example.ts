@@ -21,7 +21,8 @@ In this tutorial, we will import:
 import * as WEBIFC from "web-ifc";
 import * as BUI from "@thatopen/ui";
 import Stats from "stats.js";
-import * as OBC from "@thatopen/components";
+// import * as OBC from "@thatopen/components";
+import * as OBC from "../..";
 
 /* MD
   ### 🌎 Setting up a simple scene
@@ -62,7 +63,6 @@ grids.create(world);
 */
 
 world.scene.three.background = null;
-
 
 /* MD
   ### 🚗🏎️ Getting IFC and fragments
@@ -119,14 +119,14 @@ const excludedCats = [
 ];
 
 for (const cat of excludedCats) {
-  fragmentIfcLoader.settings.excludedCategories.add(cat);
+  fragmentIfcLoader.config.excludedCategories.add(cat);
 }
 
 /* MD
   We can further configure the conversion using the `webIfc` object. In this example, we will make the IFC model go to the origin of the scene (don't worry, this supports model federation):
   */
 
-fragmentIfcLoader.settings.webIfc.COORDINATE_TO_ORIGIN = true;
+fragmentIfcLoader.config.webIfc.COORDINATE_TO_ORIGIN = true;
 
 /* MD
   ### 🚗🔥 Loading the IFC
@@ -141,14 +141,15 @@ fragmentIfcLoader.settings.webIfc.COORDINATE_TO_ORIGIN = true;
 */
 
 async function loadIfc() {
-  const file = await fetch("https://thatopen.github.io/engine_components/resources/small.ifc");
+  const file = await fetch(
+    "https://thatopen.github.io/engine_components/resources/small.ifc",
+  );
   const data = await file.arrayBuffer();
   const buffer = new Uint8Array(data);
   const model = await fragmentIfcLoader.load(buffer);
   model.name = "example";
   world.scene.three.add(model);
 }
-
 
 /* MD
   If you want to get the resulted model every time a new model is loaded, you can subscribe to the following event anywhere in your app:
@@ -258,8 +259,6 @@ const panel = BUI.Component.create<BUI.PanelSection>(() => {
 });
 
 document.body.append(panel);
-
-
 
 /* MD
   And we will make some logic that adds a button to the screen when the user is visiting our app from their phone, allowing to show or hide the menu. Otherwise, the menu would make the app unusable.

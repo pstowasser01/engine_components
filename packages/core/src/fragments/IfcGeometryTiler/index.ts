@@ -32,7 +32,7 @@ export class IfcGeometryTiler extends Component implements Disposable {
   /** {@link Disposable.onDisposed} */
   readonly onDisposed = new Event();
 
-  settings = new IfcStreamingSettings();
+  settings = new IfcStreamingSettings(this);
 
   enabled: boolean = true;
 
