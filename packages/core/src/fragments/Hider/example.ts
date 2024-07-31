@@ -143,8 +143,8 @@ BUI.Manager.init();
 */
 
 const spatialStructures: Record<string, any> = {};
-const structureNames = Object.keys(classifier.list.spatialStructures);
-for (const name of structureNames) {
+const structureNames = classifier.list.get("spatialStructures")!;
+for (const [name] of structureNames.entries()) {
   spatialStructures[name] = true;
 }
 
@@ -153,8 +153,8 @@ for (const name of structureNames) {
 */
 
 const classes: Record<string, any> = {};
-const classNames = Object.keys(classifier.list.entities);
-for (const name of classNames) {
+const classNames = classifier.list.get("entities")!;
+for (const [name] of classNames.entries()) {
   classes[name] = true;
 }
 
@@ -192,7 +192,9 @@ for (const name in spatialStructures) {
     return BUI.html`
       <bim-checkbox checked label="${name}"
         @change="${({ target }: { target: BUI.Checkbox }) => {
-          const found = classifier.list.spatialStructures[name];
+          const structures = classifier.list.get("spatialStructures");
+          if (!structures) return;
+          const found = structures.get(name);
           if (found && found.id !== null) {
             for (const [_id, model] of fragments.groups) {
               const foundIDs = indexer.getEntityChildren(model, found.id);

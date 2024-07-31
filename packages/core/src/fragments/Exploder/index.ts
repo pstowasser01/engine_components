@@ -73,13 +73,16 @@ export class Exploder extends Component implements Disposable {
     const factor = active ? 1 : -1;
     let i = 0;
 
-    const groups = classifier.list[this.groupName];
+    const groups = classifier.list.get(this.groupName);
+    if (!groups) return;
 
     const yTransform = new THREE.Matrix4();
 
-    for (const groupName in groups) {
+    for (const [groupName] of groups.entries()) {
       yTransform.elements[13] = i * factor * this.height;
-      for (const fragID in groups[groupName].map) {
+      const group = groups.get(groupName);
+      if (!group) continue;
+      for (const fragID in group.map) {
         const fragment = fragments.list.get(fragID);
         const itemsID = groupName + fragID;
         const areItemsExploded = this.list.has(itemsID);
@@ -96,7 +99,7 @@ export class Exploder extends Component implements Disposable {
           this.list.delete(itemsID);
         }
 
-        const ids = groups[groupName].map[fragID];
+        const ids = group.map[fragID];
         fragment.applyTransform(ids, yTransform);
         fragment.mesh.computeBoundingSphere();
         fragment.mesh.computeBoundingBox();

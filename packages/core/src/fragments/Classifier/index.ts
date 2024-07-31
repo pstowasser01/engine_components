@@ -1,30 +1,9 @@
 import * as THREE from "three";
 import * as FRAGS from "@thatopen/fragments";
-import { Disposable, Component, Event, Components } from "../../core";
+import { Disposable, Component, Event, Components, DataMap } from "../../core";
 import { IfcCategoryMap, IfcPropertiesUtils } from "../../ifc";
 import { IfcRelationsIndexer } from "../../ifc/IfcRelationsIndexer";
 import { FragmentsManager } from "../FragmentsManager";
-
-/**
- * Interface representing a classification system. The classification is organized by system and class name, and each class contains a map of fragment IDs with extra information.
- */
-export interface Classification {
-  /**
-   * A system within the classification.
-   * The key is the system name, and the value is an object representing the classes within the system.
-   */
-  [system: string]: {
-    /**
-     * A class within the system.
-     * The key is the class name, and the value is an object containing a map of fragment IDs with extra information.
-     */
-    [className: string]: {
-      map: FRAGS.FragmentIdMap;
-      name: string;
-      id: number | null;
-    };
-  };
-}
 
 /**
  * The Classifier component is responsible for classifying and categorizing fragments based on various criteria. It provides methods to add, remove, find, and filter fragments based on their classification. 📕 [Tutorial](https://docs.thatopen.com/Tutorials/Components/Core/Classifier). 📘 [API](https://docs.thatopen.com/api/@thatopen/components/classes/Classifier).
@@ -40,10 +19,39 @@ export class Classifier extends Component implements Disposable {
   enabled = true;
 
   /**
-   * A map representing the classification systems.
-   * The key is the system name, and the value is an object representing the classes within the system.
+   * The `list` property is a nested data structure that stores fragment classifications.
+   * It is organized using a `DataMap` with two levels of nesting.
+   * The outer `DataMap` uses system names as keys, and the inner `DataMap` uses class names as keys.
+   * Each classification group contains a map of fragment IDs to their respective express IDs,
+   * along with the group's name and an optional parent ID.
+   *
+   * @remarks
+   * The `list` property is used to store and retrieve fragment classifications based on various criteria,
+   * such as modelID, PredefinedType, entity type, IFC relationship, spatial structure, etc.
+   * Developers can also store thei own classifications
+   *
+   * @example
+   * To access a specific classification group, you can use the following code:
+   * ```typescript
+   * const systemName = "spatialStructures";
+   * const className = "Level 01";
+   * const system = classifier.list.get(systemName);
+   * if (system) {
+   *   const group = system.get(className);
+   *   if (group) {
+   *     const fragmentIDs = group.map;
+   *     // Use the fragmentIDs as needed
+   *   }
+   * }
+   * ```
    */
-  list: Classification = {};
+  list: DataMap<
+    string,
+    DataMap<
+      string,
+      { map: FRAGS.FragmentIdMap; name: string; id: number | null }
+    >
+  > = new DataMap();
 
   /** {@link Disposable.onDisposed} */
   readonly onDisposed = new Event();
@@ -61,21 +69,23 @@ export class Classifier extends Component implements Disposable {
   }) => {
     const { groupID, fragmentIDs } = data;
     for (const systemName in this.list) {
-      const system = this.list[systemName];
+      const system = this.list.get(systemName);
+      if (!system) continue;
       const groupNames = Object.keys(system);
       if (groupNames.includes(groupID)) {
-        delete system[groupID];
+        system.delete(groupID);
         if (Object.values(system).length === 0) {
-          delete this.list[systemName];
+          this.list.delete(systemName);
         }
       } else {
         for (const groupName of groupNames) {
-          const group = system[groupName];
+          const group = system.get(groupName);
+          if (!group) continue;
           for (const fragmentID of fragmentIDs) {
             delete group.map[fragmentID];
           }
           if (Object.values(group).length === 0) {
-            delete system[groupName];
+            system.delete(groupName);
           }
         }
       }
@@ -84,7 +94,7 @@ export class Classifier extends Component implements Disposable {
 
   /** {@link Disposable.dispose} */
   dispose() {
-    this.list = {};
+    this.list.dispose();
     const fragmentManager = this.components.get(FragmentsManager);
     fragmentManager.onFragmentsDisposed.remove(this.onFragmentsDisposed);
     this.onDisposed.trigger();
@@ -99,9 +109,11 @@ export class Classifier extends Component implements Disposable {
    */
   remove(guid: string) {
     for (const systemName in this.list) {
-      const system = this.list[systemName];
+      const system = this.list.get(systemName);
+      if (!system) return;
       for (const groupName in system) {
-        const group = system[groupName];
+        const group = system.get(groupName);
+        if (!group) continue;
         delete group.map[guid];
       }
     }
@@ -139,18 +151,20 @@ export class Classifier extends Component implements Disposable {
 
     for (const name in filter) {
       const values = filter[name];
-      if (!this.list[name]) {
+      if (!this.list.get(name)) {
         console.warn(`Classification ${name} does not exist.`);
         continue;
       }
       for (const value of values) {
-        const found = this.list[name][value];
-        if (found) {
-          for (const guid in found.map) {
+        const systemGroups = this.list.get(name);
+        if (!systemGroups) continue;
+        const groupData = systemGroups.get(value);
+        if (groupData) {
+          for (const guid in groupData.map) {
             if (!models[guid]) {
               models[guid] = new Map();
             }
-            for (const id of found.map[guid]) {
+            for (const id of groupData.map[guid]) {
               const matchCount = models[guid].get(id);
               if (matchCount === undefined) {
                 models[guid].set(id, 1);
@@ -196,14 +210,16 @@ export class Classifier extends Component implements Disposable {
    *
    */
   byModel(modelID: string, group: FRAGS.FragmentsGroup) {
-    if (!this.list.models) {
-      this.list.models = {};
+    if (!this.list.get("models")) {
+      this.list.set("models", new DataMap());
     }
-    const modelsClassification = this.list.models;
-    if (!modelsClassification[modelID]) {
-      modelsClassification[modelID] = { map: {}, id: null, name: modelID };
+    const modelsClassification = this.list.get("models");
+    if (!modelsClassification) return;
+    if (!modelsClassification.get(modelID)) {
+      modelsClassification.set(modelID, { map: {}, id: null, name: modelID });
     }
-    const currentModel = modelsClassification[modelID];
+    const currentModel = modelsClassification.get(modelID);
+    if (!currentModel) return;
     for (const [expressID, data] of group.data) {
       const keys = data[0];
       for (const key of keys) {
@@ -231,11 +247,12 @@ export class Classifier extends Component implements Disposable {
    * @throws Will throw an error if the fragment ID is not found.
    */
   async byPredefinedType(group: FRAGS.FragmentsGroup) {
-    if (!this.list.predefinedTypes) {
-      this.list.predefinedTypes = {};
+    if (!this.list.get("predefinedTypes")) {
+      this.list.set("predefinedTypes", new DataMap());
     }
 
-    const currentTypes = this.list.predefinedTypes;
+    const currentTypes = this.list.get("predefinedTypes");
+    if (!currentTypes) return;
 
     const ids = group.getAllPropertiesIDs();
     for (const id of ids) {
@@ -245,14 +262,15 @@ export class Classifier extends Component implements Disposable {
 
       const predefinedType = String(entity.PredefinedType?.value).toUpperCase();
 
-      if (!currentTypes[predefinedType]) {
-        currentTypes[predefinedType] = {
+      if (!currentTypes.get(predefinedType)) {
+        currentTypes.set(predefinedType, {
           map: {},
           id: null,
           name: predefinedType,
-        };
+        });
       }
-      const currentType = currentTypes[predefinedType];
+      const currentType = currentTypes.get(predefinedType);
+      if (!currentType) continue;
 
       for (const [_expressID, data] of group.data) {
         const keys = data[0];
@@ -285,8 +303,8 @@ export class Classifier extends Component implements Disposable {
    * @throws Will throw an error if the fragment ID is not found.
    */
   byEntity(group: FRAGS.FragmentsGroup) {
-    if (!this.list.entities) {
-      this.list.entities = {};
+    if (!this.list.get("entities")) {
+      this.list.set("entities", new DataMap());
     }
 
     for (const [expressID, data] of group.data) {
@@ -309,6 +327,8 @@ export class Classifier extends Component implements Disposable {
    * and classifies them based on the specified IFC relationship.
    * The classification is stored in the `list` property under the specified system name,
    * with the relationship name as the class name and a map of fragment IDs to their respective express IDs as the value.
+   * It's important to note the classifier uses FragmentIdMaps, but not all elements in a relation corresponds to a physical
+   * element in the model. That means, not all IfcRels can create groups in the list.
    *
    * @throws Will throw an error if the fragment ID is not found or if the IFC relationship is not valid.
    */
@@ -441,6 +461,22 @@ export class Classifier extends Component implements Disposable {
     }
   }
 
+  // async byPresentationLayer(model: FRAGS.FragmentsGroup) {
+  //   const presentationAssignments = await model.getAllPropertiesOfType(
+  //     WEBIFC.IFCPRESENTATIONLAYERASSIGNMENT,
+  //   );
+  //   if (!presentationAssignments) return;
+  //   for (const expressID in presentationAssignments) {
+  //     const attrs = presentationAssignments[expressID];
+  //     const { AssignedItems } = attrs;
+  //     if (!AssignedItems) continue;
+  //     for (const handle of AssignedItems) {
+  //       const itemAttrs = await model.getProperties(handle.value);
+  //       console.log(itemAttrs); // Right now, it will always be null because the loader skips the geometric entities from the FragmentsGroup properties.
+  //     }
+  //   }
+  // }
+
   /**
    * Sets the color of the specified fragments.
    *
@@ -492,22 +528,25 @@ export class Classifier extends Component implements Disposable {
     expressID: number,
     parentID: number | null = null,
   ) {
-    if (!this.list[systemName]) {
-      this.list[systemName] = {};
+    if (!this.list.get(systemName)) {
+      this.list.set(systemName, new DataMap());
     }
     const keys = group.data.get(expressID);
     if (!keys) return;
     for (const key of keys[0]) {
       const fragmentID = group.keyFragments.get(key);
       if (fragmentID) {
-        const system = this.list[systemName];
-        if (!system[className]) {
-          system[className] = { map: {}, id: parentID, name: className };
+        const system = this.list.get(systemName);
+        if (!system) continue;
+        if (!system.get(className)) {
+          system.set(className, { map: {}, id: parentID, name: className });
         }
-        if (!system[className].map[fragmentID]) {
-          system[className].map[fragmentID] = new Set<number>();
+        const group = system.get(className);
+        if (!group) continue;
+        if (!group.map[fragmentID]) {
+          group.map[fragmentID] = new Set<number>();
         }
-        system[className].map[fragmentID].add(expressID);
+        group.map[fragmentID].add(expressID);
       }
     }
   }
